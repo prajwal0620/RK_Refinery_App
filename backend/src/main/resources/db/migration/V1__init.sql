@@ -1,0 +1,37 @@
+CREATE TABLE users (
+  id BIGSERIAL PRIMARY KEY,
+  username VARCHAR(100) UNIQUE NOT NULL,
+  password VARCHAR(255) NOT NULL
+);
+
+CREATE TABLE customers (
+  id BIGSERIAL PRIMARY KEY,
+  name VARCHAR(150) NOT NULL,
+  mobile VARCHAR(15) UNIQUE NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE SEQUENCE bill_no_seq START 1;
+
+CREATE TABLE bills (
+  id BIGSERIAL PRIMARY KEY,
+  bill_no VARCHAR(30) UNIQUE NOT NULL,
+  customer_id BIGINT NOT NULL REFERENCES customers(id),
+  bill_date DATE NOT NULL,
+  total_weight NUMERIC(12,2) NOT NULL DEFAULT 0,
+  total_purity NUMERIC(12,2) NOT NULL DEFAULT 0,
+  majuri NUMERIC(12,2) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_bills_date ON bills(bill_date);
+CREATE INDEX idx_bills_bill_no ON bills(bill_no);
+
+CREATE TABLE bill_items (
+  id BIGSERIAL PRIMARY KEY,
+  bill_id BIGINT NOT NULL REFERENCES bills(id) ON DELETE CASCADE,
+  description VARCHAR(200) NOT NULL,
+  weight NUMERIC(12,2) NOT NULL,
+  touch NUMERIC(6,2) NOT NULL,
+  purity NUMERIC(12,2) NOT NULL
+);
