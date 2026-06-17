@@ -10,27 +10,33 @@ export default function SettingsPage() {
     setPaperWidth(localStorage.getItem("rk_paper_width") || "80");
   }, []);
 
-  const detect = async () => {
-    if (!(window as any).rk?.listPrinters) {
-      alert("Detect works only in Electron Desktop (npm run dev).");
-      return;
-    }
-    const list = await (window as any).rk.listPrinters();
-    setPrinters(list);
-    if (list.length === 0) alert("No printers found in Windows. Install/enable printer driver.");
-  };
-
   const save = () => {
     localStorage.setItem("rk_printer_interface", printerInterface.trim());
     localStorage.setItem("rk_paper_width", paperWidth);
-    alert("Printer settings saved");
+    alert("Saved");
   };
 
-  const setAndSave = (name: string) => {
+  const detect = async () => {
+    if (!window.rk) return alert("Electron bridge missing. Restart Electron.");
+    if (!window.rk.listPrinters) return alert("listPrinters not available. Rebuild EXE / restart Electron.");
+
+    try {
+      const list = await window.rk.listPrinters();
+      setPrinters(list);
+      if (list.length === 0) alert("No printers found in Windows.");
+    } catch (e: any) {
+      alert(e?.message ?? "Detect printers failed");
+    }
+  };
+
+  const usePrinter = (name: string) => {
     const v = `printer:${name}`;
     setPrinterInterface(v);
     localStorage.setItem("rk_printer_interface", v);
-    localStorage.setItem("rk_paper_width", paperWidth);
+
+    // optional: also set normal printer name for silent prints
+    localStorage.setItem("rk_normal_printer_name", name);
+
     alert(`Selected: ${v}`);
   };
 
@@ -47,23 +53,24 @@ export default function SettingsPage() {
         </div>
 
         <div className="flex gap-2">
-          <button onClick={detect} className="px-3 py-2 rounded bg-indigo-600 text-white">
+          <button type="button" onClick={detect} className="px-3 py-2 rounded bg-indigo-600 text-white">
             Detect Printers
           </button>
-          <button onClick={save} className="px-3 py-2 rounded bg-slate-900 text-white">
+          <button type="button" onClick={save} className="px-3 py-2 rounded bg-slate-900 text-white">
             Save
           </button>
         </div>
 
         {printers.length > 0 && (
           <div className="border rounded p-2">
-            <div className="text-sm font-medium mb-2">Detected Printers (click to select)</div>
+            <div className="text-sm font-medium mb-2">Detected Printers (click to use)</div>
             <div className="grid grid-cols-2 gap-2">
               {printers.map((p) => (
                 <button
+                  type="button"
                   key={p.name}
                   className="text-left px-3 py-2 border rounded hover:bg-slate-50"
-                  onClick={() => setAndSave(p.name)}
+                  onClick={() => usePrinter(p.name)}
                 >
                   <div className="font-medium">{p.name}</div>
                   <div className="text-xs text-slate-500">{p.isDefault ? "Default" : ""}</div>
@@ -74,15 +81,15 @@ export default function SettingsPage() {
         )}
 
         <div>
-          <label className="text-sm font-medium">Printer Interface</label>
+          <label className="text-sm font-medium">Printer Interface (Thermal)</label>
           <input
             className="mt-1 w-full border rounded px-3 py-2"
             value={printerInterface}
             onChange={(e) => setPrinterInterface(e.target.value)}
-            placeholder="printer:POS-80"
+            placeholder="printer:RP3200 plus(U) 1"
           />
           <div className="text-xs text-slate-500 mt-1">
-            Format should be: <code>printer:PRINTER_NAME</code>
+            Format: <code>printer:PRINTER_NAME</code>
           </div>
         </div>
 
@@ -96,6 +103,10 @@ export default function SettingsPage() {
             <option value="72">72mm</option>
             <option value="80">80mm</option>
           </select>
+        </div>
+
+        <div className="text-xs text-slate-500">
+          Debug: listPrinters = <b>{String(!!window.rk?.listPrinters)}</b>
         </div>
       </div>
     </div>

@@ -38,4 +38,13 @@ public class ReportController {
         LocalDate t = DateUtil.parseNullable(to);
         return ApiResponse.ok("OK", reportService.itemWise(f, t));
     }
+    @GetMapping("/items-details")
+    public ApiResponse<com.rkrefinery.dto.report.ItemDetailReportResponse> itemDetails(
+            @RequestParam(required = false, defaultValue = "") String from,
+            @RequestParam(required = false, defaultValue = "") String to
+    ) {
+        var f = com.rkrefinery.dto.util.DateUtil.parseNullable(from);
+        var t = com.rkrefinery.dto.util.DateUtil.parseNullable(to);
+        return ApiResponse.ok("OK", reportService.itemDetails(f, t));
+    }
 }
