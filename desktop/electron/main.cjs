@@ -3,7 +3,6 @@ const path = require("path");
 const fs = require("fs");
 const { ThermalPrinter, PrinterTypes } = require("node-thermal-printer");
 
-
 let win;
 
 function createWindow() {
@@ -24,7 +23,43 @@ function createWindow() {
 }
 
 app.whenReady().then(createWindow);
+app.on("window-all-closed", () => app.quit());
 
+// ---------- helpers ----------
+function normalizeInterface(iface) {
+  iface = String(iface || "").trim();
+  if (!iface) return "";
+  if (iface.includes("://")) return iface;
+  if (iface.toLowerCase().startsWith("printer:")) return iface;
+  return `printer:${iface}`;
+}
+
+function padRight(str, n) {
+  str = String(str ?? "");
+  if (str.length >= n) return str.slice(0, n);
+  return str + " ".repeat(n - str.length);
+}
+
+function padLeft(str, n) {
+  str = String(str ?? "");
+  if (str.length >= n) return str.slice(0, n);
+  return " ".repeat(n - str.length) + str;
+}
+
+function makeThermal(printerInterface, paperWidth) {
+  const W = paperWidth === "72" ? 42 : 48;
+  return new ThermalPrinter({
+    type: PrinterTypes.EPSON,
+    interface: normalizeInterface(printerInterface),
+    options: { timeout: 8000 },
+    width: W,
+    characterSet: "SLOVENIA",
+    removeSpecialCharacters: false,
+    lineCharacter: "-",
+  });
+}
+
+// ---------- IPC ----------
 ipcMain.handle("rk:openExternal", async (_e, url) => {
   await shell.openExternal(url);
   return true;
@@ -36,12 +71,12 @@ ipcMain.handle("rk:listPrinters", async () => {
   return printers.map((p) => ({ name: p.name, isDefault: p.isDefault }));
 });
 
-// Normal print dialog
+// Normal Windows print (dialog OR silent)
 ipcMain.handle("rk:printReceiptHtml", async (_e, payload) => {
   const { html, silent = false, deviceName } = payload;
 
   const printWin = new BrowserWindow({
-    show: !silent,
+    show: true, // show the receipt window (acts like preview)
     webPreferences: { sandbox: false },
   });
 
@@ -51,25 +86,26 @@ ipcMain.handle("rk:printReceiptHtml", async (_e, payload) => {
     const opts = { silent: !!silent, printBackground: true };
     if (deviceName) opts.deviceName = deviceName;
 
+    // Open Windows print dialog if silent=false
     printWin.webContents.print(opts, (success, errorType) => {
       if (!success) reject(new Error(errorType || "Print failed"));
       else resolve(true);
     });
   });
 
-  printWin.close();
+  // keep window a bit then close (so user sees it)
+  setTimeout(() => {
+    try { printWin.close(); } catch (_) {}
+  }, 800);
+
   return true;
 });
 
-// HTML -> PDF
+// Optional: HTML -> PDF
 ipcMain.handle("rk:exportPdfFromHtml", async (_e, payload) => {
   const { html, defaultFileName = "document.pdf" } = payload;
 
-  const pdfWin = new BrowserWindow({
-    show: false,
-    webPreferences: { sandbox: false },
-  });
-
+  const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: false } });
   await pdfWin.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
 
   const pdfBuffer = await pdfWin.webContents.printToPDF({
@@ -93,104 +129,67 @@ ipcMain.handle("rk:exportPdfFromHtml", async (_e, payload) => {
   return { saved: true, filePath };
 });
 
-// ----------------------------
-// THERMAL HELPERS
-// ----------------------------
-function normalizeInterface(iface) {
-  iface = String(iface || "").trim();
-  if (!iface) return "";
-  if (iface.includes("://")) return iface;
-  if (!iface.toLowerCase().startsWith("printer:")) return `printer:${iface}`;
-  return iface;
-}
-
-function padRight(str, n) {
-  str = String(str ?? "");
-  if (str.length >= n) return str.slice(0, n);
-  return str + " ".repeat(n - str.length);
-}
-
-function padLeft(str, n) {
-  str = String(str ?? "");
-  if (str.length >= n) return str.slice(0, n);
-  return " ".repeat(n - str.length) + str;
-}
-
-// Existing thermal report (optional)
-ipcMain.handle("rk:printThermalReport", async (_e, payload) => {
-  // keep your existing if needed
-  return true;
-});
-
-// ✅ NEW: Item Detail Report thermal print
-ipcMain.handle("rk:printThermalItemDetailsReport", async (_e, payload) => {
-  let { printerInterface, paperWidth, from, to, data } = payload;
+// ✅ Thermal BILL print (72mm slip style + || श्री ||)
+ipcMain.handle("rk:printThermalBill", async (_e, payload) => {
+  let { printerInterface, paperWidth, bill } = payload;
 
   printerInterface = normalizeInterface(printerInterface);
-  if (!printerInterface) throw new Error("Printer interface missing. Set in Settings.");
+  if (!printerInterface) throw new Error("Printer interface missing.");
 
-  const printer = new ThermalPrinter({
-    type: PrinterTypes.EPSON,
-    interface: printerInterface,
-    options: { timeout: 8000 },
-    width: paperWidth === "72" ? 42 : 48,
-    characterSet: "SLOVENIA",
-    removeSpecialCharacters: false,
-    lineCharacter: "-",
-  });
-
+  const printer = makeThermal(printerInterface, paperWidth);
   const connected = await printer.isPrinterConnected();
   if (!connected) throw new Error("Thermal printer not connected.");
 
-  const rows = data?.rows ?? [];
+  // 72mm compact columns like photo
+  const col = paperWidth === "72"
+    ? { sr: 2, item: 8, wt: 9, tch: 6, pur: 9 }
+    : { sr: 2, item: 12, wt: 10, tch: 7, pur: 10 };
 
+  const rowLine = (sr, item, wt, tch, pur) =>
+    `${padLeft(sr, col.sr)} ${padRight(item, col.item)} ${padLeft(wt, col.wt)} ${padLeft(tch, col.tch)} ${padLeft(pur, col.pur)}`;
+
+  // Header exactly like image-2
   printer.alignCenter();
   printer.println("|| श्री ||");
-  printer.newLine();
-
   printer.bold(true);
-  printer.println("RK REFINERY");
+  printer.println("R.K.REFINERY Silver Exchange");
   printer.bold(false);
-  printer.println("Mangal Katta Complex, 1st Floor");
-  printer.println("Shop No 6 & 7, Shroff Bazar");
-  printer.println("ADONI - 518301");
-  printer.newLine();
-  printer.println("Prop : Anil");
-  printer.println("Mob : 9615889191 / 7033654242");
-  printer.drawLine();
-
-  printer.println("Item Detail Report");
+  printer.println("Mangal Katta Complex, 1st Floor, Shop No 6 &");
+  printer.println("7, Shroff Bazar, ADONI");
+  printer.println("518301, Kurnool dist");
+  printer.println("Prop: Anil | Mob: 9615889191, 7033654242");
   printer.drawLine();
 
   printer.alignLeft();
-  printer.println(`From : ${from}`);
-  printer.println(`To   : ${to}`);
+  printer.println(`Bill No: ${bill.billNo}`);
+  printer.println(`Date: ${bill.billDate}`);
+  printer.println(`Name: ${bill.customerName}`);
+  printer.println(`Mobile: ${bill.customerMobile}`);
   printer.drawLine();
 
-  // Column header
-  // Format: Date(10) Bill(9) Item(12) Wt(6) T(5) P(7)
-  printer.println("Date       Bill No   Item         Wt   Tch   Pur");
+  printer.println(rowLine("#", "Item", "Wt", "Tch", "Pur"));
   printer.drawLine();
 
-  rows.forEach((r) => {
-    const date = padRight(r.billDate || "", 10);
-    const bill = padRight(r.billNo || "", 9);
-    const item = padRight(r.description || "", 12);
-    const wt = padLeft(Number(r.weight || 0).toFixed(2), 6);
-    const tch = padLeft(Number(r.touch || 0).toFixed(0), 4);
-    const pur = padLeft(Number(r.purity || 0).toFixed(2), 7);
-
-    printer.println(`${date} ${bill} ${item} ${wt} ${tch} ${pur}`);
+  (bill.items || []).forEach((it, idx) => {
+    printer.println(
+      rowLine(
+        idx + 1,
+        it.description,
+        Number(it.weight || 0).toFixed(2),
+        Number(it.touch || 0).toFixed(2),
+        Number(it.purity || 0).toFixed(2)
+      )
+    );
   });
 
   printer.drawLine();
-  printer.println(`Total Bills  : ${Number(data?.totalBills ?? 0)}`);
-  printer.println(`Total Items  : ${Number(data?.totalItems ?? 0)}`);
-  printer.println(`Total Weight : ${Number(data?.totalWeight ?? 0).toFixed(2)} g`);
-  printer.println(`Total Purity : ${Number(data?.totalPurity ?? 0).toFixed(2)} g`);
-  printer.println(`Total Majuri : Rs.${Math.round(Number(data?.totalMajuri ?? 0))}`);
-  printer.drawLine();
+  printer.println(`Total Weight: ${Number(bill.totalWeight || 0).toFixed(2)} g`);
+  printer.println(`Total Purity: ${Number(bill.totalPurity || 0).toFixed(2)} g`);
+  printer.println(`Total Majuri: Rs.${Math.round(Number(bill.majuri || 0))}`);
+  // If you want Majuri line like your app:
+  // printer.println(`Total Majuri: Rs.${Math.round(Number(bill.majuri || 0))}`);
 
+  printer.newLine();
   printer.alignCenter();
   printer.println("Thank You Visit Again");
   printer.newLine();

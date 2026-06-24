@@ -3,6 +3,8 @@ import { deleteBill, duplicateBill, getBill, searchBills } from "../services/bil
 import { useNavigate } from "react-router-dom";
 import { exportBillPdf } from "../utils/pdf";
 import { buildWhatsAppUrl } from "../utils/whatsapp";
+//mport { getBill } from "../services/billService";
+import { printBillSmart } from "../utils/printBill";
 
 export default function BillsPage() {
   const nav = useNavigate();
@@ -86,11 +88,9 @@ export default function BillsPage() {
   };
 
   const onPrint = async (id: number) => {
-    const res = await getBill(id);
-    const bill = res.data.data;
-    if (!window.rk?.printReceiptHtml) return alert("Printing not available. Run via Electron.");
-    await window.rk.printReceiptHtml({ html: buildReceiptHtml(bill) });
-  };
+  const res = await getBill(id);
+  await printBillSmart(res.data.data);
+};
 
   const onWhatsApp = async (id: number) => {
     const res = await getBill(id);
@@ -184,7 +184,7 @@ export default function BillsPage() {
                 <td className="p-2 text-right">{Number(r.totalPurity).toFixed(2)}</td>
                 <td className="p-2 text-right">₹{Number(r.majuri).toFixed(0)}</td>
                 <td className="p-2 flex gap-2 justify-center flex-wrap">
-                  <button className="px-2 py-1 rounded bg-slate-200" onClick={() => onPrint(r.id)}>Print</button>
+                 <button className="px-2 py-1 rounded bg-slate-200" onClick={() => onPrint(r.id)}>Print</button>
                   <button className="px-2 py-1 rounded bg-green-600 text-white" onClick={() => onWhatsApp(r.id)}>WhatsApp</button>
                   <button className="px-2 py-1 rounded bg-amber-600 text-white" onClick={() => onPdf(r.id)}>PDF</button>
                   <button className="px-2 py-1 rounded bg-slate-200" onClick={() => onDuplicate(r.id)}>Duplicate</button>

@@ -73,11 +73,20 @@ public class BillServiceImpl implements BillService {
         }
 
         BigDecimal rate = request.getRate() == null ? BigDecimal.ZERO : request.getRate();
-        BigDecimal majuri = totalWeight.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+
+// raw majuri (per gram rate)
+        BigDecimal majuriRaw = totalWeight.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+
+// ✅ round UP to next 10
+        BigDecimal ten = new BigDecimal("10");
+        BigDecimal majuriRounded = majuriRaw
+                .divide(ten, 0, RoundingMode.CEILING)
+                .multiply(ten)
+                .setScale(2, RoundingMode.HALF_UP);
 
         bill.setTotalWeight(totalWeight.setScale(2, RoundingMode.HALF_UP));
         bill.setTotalPurity(totalPurity.setScale(2, RoundingMode.HALF_UP));
-        bill.setMajuri(majuri);
+        bill.setMajuri(majuriRounded);
 
         Bill saved = billRepository.save(bill);
 
